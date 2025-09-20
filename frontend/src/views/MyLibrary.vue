@@ -307,6 +307,7 @@ export default {
         }
       } catch (error) {
         console.error('Error loading user library:', error)
+        this.showErrorMessage('Failed to load your library')
       } finally {
         this.loading = false
       }
@@ -316,12 +317,58 @@ export default {
     saveUserLibrary() {
       try {
         localStorage.setItem('userLibrary', JSON.stringify(this.userLibrary))
+        return true
       } catch (error) {
         console.error('Error saving user library:', error)
+        this.showErrorMessage('Failed to save changes')
+        return false
       }
     },
 
-// Update book status (CRUD - Update)
+    // Save book (Create/Update)
+    async saveBook(bookData) {
+      this.saving = true
+      try {
+        if (this.editingBook && this.editingBook.id) {
+          // Update existing book
+          const bookIndex = this.userLibrary.findIndex(b => b.id === this.editingBook.id)
+          if (bookIndex !== -1) {
+            this.userLibrary[bookIndex] = {
+              ...this.userLibrary[bookIndex],
+              ...bookData,
+              updatedDate: new Date().toISOString()
+            }
+            this.saveUserLibrary()
+            this.showSuccessMessage('Book updated successfully!')
+          } else {
+            throw new Error('Book not found')
+          }
+        } else {
+          // Add new custom book
+          const newBook = {
+            id: `custom_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            ...bookData,
+            isCustom: true,
+            status: bookData.status || 'want-to-read',
+            addedDate: new Date().toISOString(),
+            coverUrl: bookData.coverUrl || null
+          }
+
+          this.userLibrary.push(newBook)
+          this.saveUserLibrary()
+          this.showSuccessMessage(`"${bookData.title}" added to your library!`)
+        }
+
+        this.cancelBookForm()
+      } catch (error) {
+        console.error('Error saving book:', error)
+        this.showErrorMessage('Failed to save book. Please try again.')
+      } finally {
+        this.saving = false
+      }
+    },
+
+    // Update book status (CRUD - Update)
     updateBookStatus(book, newStatus) {
       const bookIndex = this.userLibrary.findIndex(b => b.id === book.id)
       if (bookIndex !== -1) {
@@ -337,9 +384,7 @@ export default {
         }
 
         this.saveUserLibrary()
-
-        // Show success toast
-        this.$toast.success(`"${book.title}" moved to ${this.getStatusLabel(newStatus)}`)
+        this.showSuccessMessage(`"${book.title}" moved to ${this.getStatusLabel(newStatus)}`)
       }
     },
 
@@ -355,73 +400,24 @@ export default {
       this.showConfirmDialog = true
     },
 
-    // FIXED: Ensure this method properly removes the book
+    // Confirm and remove book
     confirmRemoveBook(book) {
-      console.log('Attempting to remove book:', book.id) // Debug log
+      console.log('Attempting to remove book:', book.id)
 
       const originalLength = this.userLibrary.length
       this.userLibrary = this.userLibrary.filter(b => b.id !== book.id)
 
-      console.log(`Library size: ${originalLength} -> ${this.userLibrary.length}`) // Debug log
+      console.log(`Library size: ${originalLength} -> ${this.userLibrary.length}`)
 
       if (this.userLibrary.length < originalLength) {
         this.saveUserLibrary()
         this.showConfirmDialog = false
-
-        // Show success message (replace with actual toast if available)
-        if (this.$toast) {
-          this.$toast.success(`"${book.title}" removed from your library`)
-        } else {
-          console.log(`"${book.title}" removed from your library`)
-        }
+        this.showSuccessMessage(`"${book.title}" removed from your library`)
       } else {
         console.error('Failed to remove book - book not found in library')
-        if (this.$toast) {
-          this.$toast.error('Failed to remove book')
-        }
+        this.showErrorMessage('Failed to remove book')
       }
     },
-
-    // Save book (CRUD - Create/Update)
-    async saveBook(bookData) {
-      this.saving = true
-      try {
-        if (this.editingBook && this.editingBook.id) {
-          // Update existing book
-          const bookIndex = this.userLibrary.findIndex(b => b.id === this.editingBook.id)
-          if (bookIndex !== -1) {
-            this.userLibrary[bookIndex] = {
-              ...this.userLibrary[bookIndex],
-              ...bookData,
-              updatedDate: new Date().toISOString()
-            }
-            this.$toast.success('Book updated successfully!')
-          }
-        } else {
-          // Add new custom book
-          const newBook = {
-            id: `custom_${Date.now()}`,
-            ...bookData,
-            isCustom: true,
-            status: bookData.status || 'want-to-read',
-            addedDate: new Date().toISOString(),
-            coverUrl: bookData.coverUrl || null
-          }
-
-          this.userLibrary.push(newBook)
-          this.$toast.success(`"${bookData.title}" added to your library!`)
-        }
-
-        this.saveUserLibrary()
-        this.cancelBookForm()
-      } catch (error) {
-        console.error('Error saving book:', error)
-        this.$toast.error('Failed to save book. Please try again.')
-      } finally {
-        this.saving = false
-      }
-    },
-
 
     // Edit book (CRUD - Update)
     editBook(book) {
@@ -445,16 +441,30 @@ export default {
       return labels[status] || status
     },
 
+    // Message helpers with safe toast handling
     showSuccessMessage(message) {
-      // You can replace this with a toast notification library
-      console.log('Success:', message)
-      // this.$toast.success(message)
+      if (this.$toast) {
+        this.$toast.success(message)
+      } else {
+        console.log('✅ Success:', message)
+      }
     },
 
     showErrorMessage(message) {
-      // You can replace this with a toast notification library
-      console.error('Error:', message)
-      // this.$toast.error(message)
+      if (this.$toast) {
+        this.$toast.error(message)
+      } else {
+        console.error('❌ Error:', message)
+        alert(message) // Fallback for critical errors
+      }
+    },
+
+    showInfoMessage(message) {
+      if (this.$toast) {
+        this.$toast.info(message)
+      } else {
+        console.log('ℹ️ Info:', message)
+      }
     }
   }
 }

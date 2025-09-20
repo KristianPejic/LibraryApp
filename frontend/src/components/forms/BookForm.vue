@@ -1,7 +1,7 @@
 <template>
   <v-card class="book-form">
     <v-card-title>
-      Add Custom Book
+      {{ book ? 'Edit Book' : 'Add Custom Book' }}
     </v-card-title>
 
     <v-form @submit.prevent="submitForm">
@@ -27,6 +27,26 @@
           variant="outlined"
           type="number"
         ></v-text-field>
+
+        <v-text-field
+          v-model="formData.genre"
+          label="Genre"
+          variant="outlined"
+        ></v-text-field>
+
+        <v-textarea
+          v-model="formData.description"
+          label="Description"
+          variant="outlined"
+          rows="3"
+        ></v-textarea>
+
+        <v-select
+          v-model="formData.status"
+          :items="statusOptions"
+          label="Reading Status"
+          variant="outlined"
+        ></v-select>
       </v-card-text>
 
       <v-card-actions>
@@ -41,7 +61,7 @@
           color="primary"
           :loading="loading"
         >
-          Add Book
+          {{ book ? 'Update Book' : 'Add Book' }}
         </v-btn>
       </v-card-actions>
     </v-form>
@@ -68,8 +88,15 @@ export default {
         title: '',
         authors: [],
         publishYear: null,
+        genre: '',
+        description: '',
         status: 'want-to-read'
-      }
+      },
+      statusOptions: [
+        { title: 'Want to Read', value: 'want-to-read' },
+        { title: 'Currently Reading', value: 'currently-reading' },
+        { title: 'Read', value: 'read' }
+      ]
     }
   },
   computed: {
@@ -80,6 +107,32 @@ export default {
       set(value) {
         this.formData.authors = value ? value.split(',').map(author => author.trim()) : []
       }
+    }
+  },
+  watch: {
+    book: {
+      handler(newBook) {
+        if (newBook) {
+          this.formData = {
+            title: newBook.title || '',
+            authors: newBook.authors || [],
+            publishYear: newBook.publishYear || null,
+            genre: newBook.genre || '',
+            description: newBook.description || '',
+            status: newBook.status || 'want-to-read'
+          }
+        } else {
+          this.formData = {
+            title: '',
+            authors: [],
+            publishYear: null,
+            genre: '',
+            description: '',
+            status: 'want-to-read'
+          }
+        }
+      },
+      immediate: true
     }
   },
   methods: {

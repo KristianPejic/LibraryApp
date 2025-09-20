@@ -1,55 +1,97 @@
-import { createApp } from 'vue'
-import ToastContainer from '@/components/common/ToastContainer.vue'
+// frontend/src/plugins/toast.js
+// Simple and reliable toast implementation
 
-class ToastService {
+class SimpleToast {
   constructor() {
     this.toasts = []
     this.container = null
-    this.app = null
     this.init()
   }
 
   init() {
     // Create toast container
-    const toastDiv = document.createElement('div')
-    toastDiv.id = 'toast-container'
-    document.body.appendChild(toastDiv)
-
-    // Mount Vue app for toasts
-    this.app = createApp(ToastContainer, {
-      toasts: this.toasts
-    })
-    this.container = this.app.mount('#toast-container')
+    this.container = document.createElement('div')
+    this.container.id = 'simple-toast-container'
+    this.container.style.cssText = `
+      position: fixed;
+      top: 80px;
+      right: 20px;
+      z-index: 9999;
+      max-width: 400px;
+      pointer-events: none;
+    `
+    document.body.appendChild(this.container)
   }
 
   show(message, type = 'info', duration = 4000) {
+    const toast = document.createElement('div')
     const id = Date.now() + Math.random()
-    const toast = {
-      id,
-      message,
-      type, // success, error, warning, info
-      duration,
-      visible: true
+
+    // Set styles based on type
+    const colors = {
+      success: { bg: '#4CAF50', border: '#45a049' },
+      error: { bg: '#f44336', border: '#da190b' },
+      warning: { bg: '#ff9800', border: '#f57c00' },
+      info: { bg: '#2196F3', border: '#0b7dda' }
     }
 
-    this.toasts.push(toast)
-    this.container.$forceUpdate()
+    const color = colors[type] || colors.info
 
-    // Auto remove after duration
+    toast.style.cssText = `
+      background: ${color.bg};
+      color: white;
+      padding: 12px 20px;
+      margin-bottom: 12px;
+      border-radius: 4px;
+      border-left: 4px solid ${color.border};
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      font-size: 14px;
+      line-height: 1.4;
+      pointer-events: all;
+      opacity: 0;
+      transform: translateX(100%);
+      transition: all 0.3s ease;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    `
+
+    toast.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <span style="flex: 1; margin-right: 10px;">${message}</span>
+        <span style="cursor: pointer; font-weight: bold; opacity: 0.8;">&times;</span>
+      </div>
+    `
+
+    // Add close functionality
+    toast.addEventListener('click', () => this.remove(toast))
+
+    // Add to container
+    this.container.appendChild(toast)
+
+    // Trigger animation
+    setTimeout(() => {
+      toast.style.opacity = '1'
+      toast.style.transform = 'translateX(0)'
+    }, 10)
+
+    // Auto remove
     if (duration > 0) {
-      setTimeout(() => {
-        this.remove(id)
-      }, duration)
+      setTimeout(() => this.remove(toast), duration)
     }
 
     return id
   }
 
-  remove(id) {
-    const index = this.toasts.findIndex(toast => toast.id === id)
-    if (index > -1) {
-      this.toasts.splice(index, 1)
-      this.container.$forceUpdate()
+  remove(toast) {
+    if (toast && toast.parentNode) {
+      toast.style.opacity = '0'
+      toast.style.transform = 'translateX(100%)'
+      setTimeout(() => {
+        if (toast.parentNode) {
+          toast.parentNode.removeChild(toast)
+        }
+      }, 300)
     }
   }
 
@@ -70,13 +112,14 @@ class ToastService {
   }
 
   clear() {
-    this.toasts.length = 0
-    this.container.$forceUpdate()
+    if (this.container) {
+      this.container.innerHTML = ''
+    }
   }
 }
 
 // Create singleton instance
-const toast = new ToastService()
+const toast = new SimpleToast()
 
 // Vue plugin
 export default {
@@ -87,4 +130,3 @@ export default {
 }
 
 export { toast }
-
