@@ -1,12 +1,5 @@
 import apiClient from './api'
 
-/**
- * Search books by query
- * @param {string} query - Search query
- * @param {number} page - Page number (default: 1)
- * @param {number} limit - Results per page (default: 20)
- * @param {string} sort - Sort order (default: 'relevance')
- */
 export const searchBooks = async (query, page = 1, limit = 20, sort = 'relevance') => {
   try {
     const response = await apiClient.get('/books/search', {

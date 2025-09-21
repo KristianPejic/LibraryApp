@@ -1,15 +1,9 @@
-/**
- * Custom Books Service
- * Handles CRUD operations for user's custom books
- * Integrates with both API and localStorage
- */
-
 import apiClient from './api'
 
 const STORAGE_KEY = 'userLibrary';
 
 /**
- * Get all books from user's library
+ * Get all books from user's library (localStorage for non-custom books)
  */
 export const getUserLibrary = () => {
   try {
@@ -22,11 +16,13 @@ export const getUserLibrary = () => {
 };
 
 /**
- * Save user library to localStorage
+ * Save user library to localStorage (for non-custom books only)
  */
 export const saveUserLibrary = (library) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(library));
+    // Only save non-custom books to localStorage
+    const nonCustomBooks = library.filter(book => !book.isCustom);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(nonCustomBooks));
     return true;
   } catch (error) {
     console.error('Error saving user library:', error);
@@ -39,44 +35,34 @@ export const saveUserLibrary = (library) => {
  */
 export const createCustomBook = async (bookData) => {
   try {
-    // Try API first
-    const response = await apiClient.post('/custom-books', bookData);
+    console.log('Creating custom book:', bookData);
+
+    const response = await apiClient.post('/custom-books', {
+      title: bookData.title,
+      authors: Array.isArray(bookData.authors) ? [...bookData.authors] : bookData.authors,
+      publishYear: bookData.publishYear,
+      genre: bookData.genre,
+      description: bookData.description,
+      status: bookData.status || 'want-to-read'
+    });
+
+    console.log('API Response:', response.data);
 
     if (response.data.success) {
-      // Also save to localStorage for offline access
-      const library = getUserLibrary();
-      const newBook = {
-        ...response.data.data.book,
-        addedDate: new Date().toISOString()
-      };
-      library.push(newBook);
-      saveUserLibrary(library);
-
-      return { success: true, book: newBook };
+      return { success: true, book: response.data.data.book };
     } else {
       throw new Error(response.data.error || 'Failed to create book');
     }
   } catch (error) {
-    console.error('API error, falling back to localStorage:', error);
+    console.error('Error creating custom book:', error);
 
-    // Fallback to localStorage if API fails
-    const library = getUserLibrary();
-
-    const newBook = {
-      id: `custom_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      ...bookData,
-      isCustom: true,
-      status: bookData.status || 'want-to-read',
-      addedDate: new Date().toISOString(),
-      coverUrl: bookData.coverUrl || null
-    };
-
-    library.push(newBook);
-
-    if (saveUserLibrary(library)) {
-      return { success: true, book: newBook };
+    // Return the error details for better debugging
+    if (error.response) {
+      throw new Error(`Server error: ${error.response.data?.error || error.response.statusText}`);
+    } else if (error.request) {
+      throw new Error('Network error - could not connect to server');
     } else {
-      throw new Error('Failed to save to localStorage');
+      throw new Error(error.message || 'Failed to create custom book');
     }
   }
 };
@@ -84,127 +70,174 @@ export const createCustomBook = async (bookData) => {
 /**
  * Update an existing book
  */
-export const updateBook = async (bookId, updates) => {
+export const updateBook = async (bookOrId, updates) => {
   try {
-    // Try API first for custom books
-    if (bookId.startsWith('custom_')) {
-      try {
-        const response = await apiClient.put(`/custom-books/${bookId}`, updates);
-        if (response.data.success) {
-          // Update localStorage as well
-          const library = getUserLibrary();
-          const bookIndex = library.findIndex(book => book.id === bookId);
-          if (bookIndex !== -1) {
-            library[bookIndex] = { ...library[bookIndex], ...updates, updatedDate: new Date().toISOString() };
-            saveUserLibrary(library);
-          }
-          return { success: true, book: response.data.data.book };
-        }
-      } catch (apiError) {
-        console.warn('API update failed, falling back to localStorage:', apiError);
+    const bookId = typeof bookOrId === 'object' && bookOrId !== null ? bookOrId.id : bookOrId;
+    const customFlag = typeof bookOrId === 'object' && bookOrId !== null
+      ? (bookOrId.isCustom === true || bookOrId.is_custom === true)
+      : (typeof bookId === 'number' ? true : (typeof bookId === 'string' ? bookId.startsWith('custom_') : false));
+
+    if (customFlag) {
+      // Update custom book via API
+      const response = await apiClient.put(`/custom-books/${bookId}`, updates);
+
+      if (response.data.success) {
+        return { success: true, book: response.data.data.book };
+      } else {
+        throw new Error(response.data.error || 'Failed to update book');
       }
-    }
-
-    // Fallback to localStorage
-    const library = getUserLibrary();
-    const bookIndex = library.findIndex(book => book.id === bookId);
-
-    if (bookIndex === -1) {
-      throw new Error('Book not found');
-    }
-
-    library[bookIndex] = {
-      ...library[bookIndex],
-      ...updates,
-      updatedDate: new Date().toISOString()
-    };
-
-    // Add completion date if marked as read
-    if (updates.status === 'read' && library[bookIndex].status !== 'read') {
-      library[bookIndex].completedDate = new Date().toISOString();
-    }
-
-    if (saveUserLibrary(library)) {
-      return { success: true, book: library[bookIndex] };
     } else {
-      throw new Error('Failed to save to localStorage');
+      // Update non-custom book in localStorage
+      const library = getUserLibrary();
+      const bookIndex = library.findIndex(book => book.id === bookId);
+
+      if (bookIndex === -1) {
+        throw new Error('Book not found');
+      }
+
+      library[bookIndex] = {
+        ...library[bookIndex],
+        ...updates,
+        updatedDate: new Date().toISOString()
+      };
+
+      if (saveUserLibrary(library)) {
+        return { success: true, book: library[bookIndex] };
+      } else {
+        throw new Error('Failed to save to localStorage');
+      }
     }
   } catch (error) {
     console.error('Error updating book:', error);
-    return { success: false, error: error.message };
+    throw error;
   }
 };
 
 /**
  * Remove a book from the library
  */
-export const removeBook = async (bookId) => {
+export const removeBook = async (bookOrId) => {
   try {
-    // Try API first for custom books
-    if (bookId.startsWith('custom_')) {
-      try {
-        const response = await apiClient.delete(`/custom-books/${bookId}`);
-        if (response.data.success) {
-          // Remove from localStorage as well
-          const library = getUserLibrary();
-          const filteredLibrary = library.filter(book => book.id !== bookId);
-          saveUserLibrary(filteredLibrary);
-          return { success: true };
-        }
-      } catch (apiError) {
-        console.warn('API delete failed, falling back to localStorage:', apiError);
+    const bookId = typeof bookOrId === 'object' && bookOrId !== null ? bookOrId.id : bookOrId;
+    const customFlag = typeof bookOrId === 'object' && bookOrId !== null
+      ? (bookOrId.isCustom === true || bookOrId.is_custom === true)
+      : (typeof bookId === 'number' ? true : (typeof bookId === 'string' ? bookId.startsWith('custom_') : false));
+
+    if (customFlag) {
+      // Delete custom book via API
+      const response = await apiClient.delete(`/custom-books/${bookId}`);
+
+      if (response.data.success) {
+        return { success: true };
+      } else {
+        throw new Error(response.data.error || 'Failed to delete book');
       }
-    }
-
-    // Fallback to localStorage
-    const library = getUserLibrary();
-    const originalLength = library.length;
-    const filteredLibrary = library.filter(book => book.id !== bookId);
-
-    if (filteredLibrary.length === originalLength) {
-      throw new Error('Book not found');
-    }
-
-    if (saveUserLibrary(filteredLibrary)) {
-      return { success: true };
     } else {
-      throw new Error('Failed to save to localStorage');
+      // Remove non-custom book from localStorage
+      const library = getUserLibrary();
+      const filteredLibrary = library.filter(book => book.id !== bookId);
+
+      if (saveUserLibrary(filteredLibrary)) {
+        return { success: true };
+      } else {
+        throw new Error('Failed to save to localStorage');
+      }
     }
   } catch (error) {
     console.error('Error removing book:', error);
-    return { success: false, error: error.message };
+    throw error;
   }
 };
 
 /**
- * Delete a custom book (alias for removeBook for API compatibility)
+ * Get all custom books from API
  */
-export const deleteCustomBook = async (bookId) => {
-  return await removeBook(bookId);
+export const getAllCustomBooks = async () => {
+  try {
+    console.log('Fetching custom books from API...');
+
+    const response = await apiClient.get('/custom-books');
+    console.log('Custom books API response:', response.data);
+
+    if (response.data.success) {
+      return { success: true, books: response.data.data.books || [] };
+    } else {
+      throw new Error(response.data.error || 'Failed to fetch custom books');
+    }
+  } catch (error) {
+    console.error('Error fetching custom books from API:', error);
+
+    // Don't fallback to localStorage for custom books - they should come from API
+    throw error;
+  }
 };
 
 /**
- * Get books by status
+ * Get all books (custom from API + non-custom from localStorage)
  */
-export const getBooksByStatus = (status) => {
-  const library = getUserLibrary();
-  return library.filter(book => book.status === status);
+export const getAllBooks = async () => {
+  try {
+    // Get custom books from API
+    const customBooksResult = await getAllCustomBooks();
+    const customBooks = customBooksResult.success ? customBooksResult.books : [];
+
+    // Get non-custom books from localStorage
+    const localBooks = getUserLibrary();
+
+    // Combine both lists
+    const allBooks = [...customBooks, ...localBooks];
+
+    return { success: true, books: allBooks };
+  } catch (error) {
+    console.error('Error getting all books:', error);
+
+    // If API fails, return only localStorage books
+    const localBooks = getUserLibrary();
+    return { success: true, books: localBooks };
+  }
+};
+
+/**
+ * Get books by status (from both API and localStorage)
+ */
+export const getBooksByStatus = async (status) => {
+  try {
+    const allBooksResult = await getAllBooks();
+    const allBooks = allBooksResult.books || [];
+
+    return allBooks.filter(book => book.status === status);
+  } catch (error) {
+    console.error('Error getting books by status:', error);
+    return [];
+  }
 };
 
 /**
  * Get custom books only
  */
-export const getCustomBooks = () => {
-  const library = getUserLibrary();
-  return library.filter(book => book.isCustom === true);
+export const getCustomBooks = async () => {
+  try {
+    const result = await getAllCustomBooks();
+    return result.books || [];
+  } catch (error) {
+    console.error('Error getting custom books:', error);
+    return [];
+  }
 };
 
 /**
  * Check if a book exists in the library
  */
-export const isBookInLibrary = (bookId) => {
-  const library = getUserLibrary();
-  return library.some(book => book.id === bookId);
+export const isBookInLibrary = async (bookId) => {
+  try {
+    const allBooksResult = await getAllBooks();
+    const allBooks = allBooksResult.books || [];
+
+    return allBooks.some(book => book.id === bookId);
+  } catch (error) {
+    console.error('Error checking if book is in library:', error);
+    return false;
+  }
 };
 
 /**
@@ -246,118 +279,48 @@ export const addBookToLibrary = (bookData, status = 'want-to-read') => {
 /**
  * Get library statistics
  */
-export const getLibraryStats = () => {
-  const library = getUserLibrary();
-
-  return {
-    total: library.length,
-    wantToRead: library.filter(book => book.status === 'want-to-read').length,
-    currentlyReading: library.filter(book => book.status === 'currently-reading').length,
-    read: library.filter(book => book.status === 'read').length,
-    custom: library.filter(book => book.isCustom === true).length
-  };
-};
-
-/**
- * Load custom books from API and merge with localStorage
- */
-export const loadCustomBooksFromAPI = async () => {
+export const getLibraryStats = async () => {
   try {
-    const response = await apiClient.get('/custom-books');
+    const allBooksResult = await getAllBooks();
+    const library = allBooksResult.books || [];
 
-    if (response.data.success) {
-      const apiBooks = response.data.data.books || [];
-
-      // Merge with localStorage books
-      const localBooks = getUserLibrary();
-      const localCustomBooks = localBooks.filter(book => book.isCustom);
-
-      // Combine API and local books (avoid duplicates)
-      const allCustomBooks = [...apiBooks];
-      localCustomBooks.forEach(localBook => {
-        if (!apiBooks.find(apiBook => apiBook.id === localBook.id)) {
-          allCustomBooks.push(localBook);
-        }
-      });
-
-      return { success: true, books: allCustomBooks };
-    } else {
-      throw new Error(response.data.error || 'Failed to load custom books');
-    }
+    return {
+      total: library.length,
+      wantToRead: library.filter(book => book.status === 'want-to-read').length,
+      currentlyReading: library.filter(book => book.status === 'currently-reading').length,
+      read: library.filter(book => book.status === 'read').length,
+      custom: library.filter(book => book.isCustom === true).length
+    };
   } catch (error) {
-    console.error('Error loading custom books from API, using localStorage:', error);
-
-    // Fallback to localStorage
-    const localBooks = getUserLibrary();
-    const customBooks = localBooks.filter(book => book.isCustom);
-
-    return { success: true, books: customBooks };
+    console.error('Error getting library stats:', error);
+    return {
+      total: 0,
+      wantToRead: 0,
+      currentlyReading: 0,
+      read: 0,
+      custom: 0
+    };
   }
 };
 
-/**
- * Get a specific custom book by ID
- */
+// Legacy aliases for compatibility
+export const deleteCustomBook = removeBook;
+export const updateCustomBook = updateBook;
 export const getCustomBook = async (bookId) => {
   try {
-    // Try API first
     if (bookId.startsWith('custom_')) {
-      try {
-        const response = await apiClient.get(`/custom-books/${bookId}`);
-        if (response.data.success) {
-          return { success: true, book: response.data.data.book };
-        }
-      } catch (apiError) {
-        console.warn('API get failed, falling back to localStorage:', apiError);
+      const response = await apiClient.get(`/custom-books/${bookId}`);
+      if (response.data.success) {
+        return { success: true, book: response.data.data.book };
       }
     }
-
-    // Fallback to localStorage
-    const library = getUserLibrary();
-    const book = library.find(book => book.id === bookId);
-
-    if (book) {
-      return { success: true, book };
-    } else {
-      return { success: false, error: 'Book not found' };
-    }
+    return { success: false, error: 'Book not found' };
   } catch (error) {
     console.error('Error getting custom book:', error);
     return { success: false, error: error.message };
   }
 };
 
-/**
- * Update custom book (alias for updateBook for API compatibility)
- */
-export const updateCustomBook = async (bookId, updates) => {
-  return await updateBook(bookId, updates);
-};
-
-/**
- * Get all custom books from API
- */
-export const getAllCustomBooks = async () => {
-  try {
-    const response = await apiClient.get('/custom-books');
-
-    if (response.data.success) {
-      return { success: true, books: response.data.data.books || [] };
-    } else {
-      throw new Error(response.data.error || 'Failed to fetch custom books');
-    }
-  } catch (error) {
-    console.error('Error fetching custom books from API:', error);
-
-    // Fallback to localStorage
-    const customBooks = getCustomBooks();
-    return { success: true, books: customBooks };
-  }
-};
-
-/**
- * Export default object with all functions
- */
 export default {
   getUserLibrary,
   saveUserLibrary,
@@ -369,9 +332,9 @@ export default {
   getBooksByStatus,
   getCustomBooks,
   getAllCustomBooks,
+  getAllBooks,
   getCustomBook,
   isBookInLibrary,
   addBookToLibrary,
-  getLibraryStats,
-  loadCustomBooksFromAPI
+  getLibraryStats
 };

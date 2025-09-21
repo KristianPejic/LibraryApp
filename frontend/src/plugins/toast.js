@@ -1,6 +1,3 @@
-// frontend/src/plugins/toast.js
-// Simple and reliable toast implementation
-
 class SimpleToast {
   constructor() {
     this.toasts = []

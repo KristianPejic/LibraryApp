@@ -15,17 +15,8 @@ const apiClient = axios.create({
     }
 })
 
-// =====================================
 // SEARCH FUNCTIONS
-// =====================================
 
-/**
- * Pretraži knjige po query stringu
- * @param {string} query - Search query
- * @param {number} page - Broj stranice (default: 1)
- * @param {number} limit - Broj rezultata po stranici (default: 20)
- * @param {string} sort - Sortiranje: 'new', 'old', 'rating'
- */
 const searchBooks = async (query, page = 1, limit = 20, sort = 'relevance') => {
     try {
         const params = {
@@ -164,9 +155,7 @@ const searchBooksBySubject = async (subject, page = 1, limit = 20) => {
     }
 }
 
-// =====================================
 // BOOK DETAILS FUNCTIONS
-// =====================================
 
 /**
  * Dobij detalje o knjizi po Work ID
@@ -210,9 +199,7 @@ const getBookEditions = async (workId, limit = 10) => {
     }
 }
 
-// =====================================
 // COVER IMAGE FUNCTIONS
-// =====================================
 
 /**
  * Generiraj URL za cover sliku
@@ -232,9 +219,7 @@ const getCoverImageUrlByISBN = (isbn, size = 'M') => {
     return `${COVERS_BASE_URL}/b/isbn/${isbn}-${size}.jpg`
 }
 
-// =====================================
 // UTILITY FUNCTIONS
-// =====================================
 
 /**
  * Format book data za frontend
@@ -263,9 +248,7 @@ const formatBooksData = (books) => {
     return books.map(formatBookData)
 }
 
-// =====================================
 // POPULAR/TRENDING BOOKS
-// =====================================
 
 /**
  * Dobij popularne knjige (trending subjects)

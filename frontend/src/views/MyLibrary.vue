@@ -13,7 +13,7 @@
 
           <!-- Add Book Button -->
           <v-btn
-            @click="showAddBookDialog = true"
+            @click="openAddDialog()"
             color="primary"
             prepend-icon="mdi-plus"
             size="large"
@@ -180,7 +180,7 @@
               Cancel
             </v-btn>
             <v-btn
-              @click="confirmDialog.action"
+              @click="executeConfirmAction"
               :color="confirmDialog.color"
               variant="elevated"
             >
@@ -189,6 +189,11 @@
           </v-card-actions>
         </v-card>
       </v-dialog>
+
+      <!-- Snackbar Feedback -->
+      <v-snackbar v-model="snackbar.show" :color="snackbar.color" timeout="3000">
+        {{ snackbar.text }}
+      </v-snackbar>
     </v-container>
   </div>
 </template>
@@ -196,6 +201,13 @@
 <script>
 import LibraryBooksList from '@/components/common/LibraryBooksList.vue'
 import BookForm from '@/components/forms/BookForm.vue'
+import {
+  getAllBooks,
+  createCustomBook,
+  updateBook as updateBookService,
+  removeBook as removeBookService,
+  getLibraryStats
+} from '@/services/customBooksService'
 
 export default {
   name: 'MyLibrary',
@@ -218,6 +230,22 @@ export default {
       showConfirmDialog: false,
       editingBook: null,
 
+      // Feedback
+      snackbar: {
+        show: false,
+        text: '',
+        color: 'success'
+      },
+
+      // Library Statistics
+      stats: {
+        total: 0,
+        wantToRead: 0,
+        currentlyReading: 0,
+        read: 0,
+        custom: 0
+      },
+
       // Confirmation Dialog
       confirmDialog: {
         title: '',
@@ -235,25 +263,25 @@ export default {
       return [
         {
           title: 'Total Books',
-          count: this.allBooks.length,
+          count: this.stats.total,
           icon: 'mdi-book-multiple',
           color: 'primary'
         },
         {
           title: 'Want to Read',
-          count: this.wantToReadBooks.length,
+          count: this.stats.wantToRead,
           icon: 'mdi-bookmark-outline',
           color: 'orange'
         },
         {
           title: 'Currently Reading',
-          count: this.currentlyReadingBooks.length,
+          count: this.stats.currentlyReading,
           icon: 'mdi-book-open-variant',
           color: 'blue'
         },
         {
           title: 'Completed',
-          count: this.readBooks.length,
+          count: this.stats.read,
           icon: 'mdi-check-circle',
           color: 'success'
         }
@@ -278,51 +306,51 @@ export default {
     },
 
     customBooks() {
-      return this.userLibrary.filter(book => book.isCustom === true)
+      return this.userLibrary.filter(book => book.isCustom === true || book.is_custom === true)
     }
   },
 
   async mounted() {
     await this.loadUserLibrary()
+    await this.loadLibraryStats()
   },
 
   methods: {
-    // Load user library from localStorage
+    // Load user library from both API and localStorage
     async loadUserLibrary() {
       this.loading = true
       try {
-        const saved = localStorage.getItem('userLibrary')
-        if (saved) {
-          this.userLibrary = JSON.parse(saved)
-
-          // Add default status if missing
-          this.userLibrary = this.userLibrary.map(book => ({
+        const result = await getAllBooks()
+        if (result.success) {
+          this.userLibrary = result.books.map(book => ({
             ...book,
             status: book.status || 'want-to-read',
-            addedDate: book.addedDate || new Date().toISOString(),
-            isCustom: book.isCustom || false
+            addedDate: book.addedDate || book.created_date || new Date().toISOString(),
+            isCustom: book.isCustom || book.is_custom || false
           }))
-
-          this.saveUserLibrary()
+        } else {
+          throw new Error('Failed to load library')
         }
       } catch (error) {
         console.error('Error loading user library:', error)
-        this.showErrorMessage('Failed to load your library')
+        this.showErrorMessage('Failed to load your library: ' + (error.message || 'Unknown error'))
       } finally {
         this.loading = false
       }
     },
 
-    // Save user library to localStorage
-    saveUserLibrary() {
+    // Load library statistics
+    async loadLibraryStats() {
       try {
-        localStorage.setItem('userLibrary', JSON.stringify(this.userLibrary))
-        return true
+        this.stats = await getLibraryStats()
       } catch (error) {
-        console.error('Error saving user library:', error)
-        this.showErrorMessage('Failed to save changes')
-        return false
+        console.error('Error loading library stats:', error)
       }
+    },
+
+    openAddDialog() {
+      this.editingBook = null
+      this.showAddBookDialog = true
     },
 
     // Save book (Create/Update)
@@ -331,140 +359,116 @@ export default {
       try {
         if (this.editingBook && this.editingBook.id) {
           // Update existing book
-          const bookIndex = this.userLibrary.findIndex(b => b.id === this.editingBook.id)
-          if (bookIndex !== -1) {
-            this.userLibrary[bookIndex] = {
-              ...this.userLibrary[bookIndex],
-              ...bookData,
-              updatedDate: new Date().toISOString()
-            }
-            this.saveUserLibrary()
+          const result = await updateBookService(this.editingBook, bookData)
+          if (result.success) {
+            await this.loadUserLibrary()
+            await this.loadLibraryStats()
             this.showSuccessMessage('Book updated successfully!')
           } else {
-            throw new Error('Book not found')
+            throw new Error(result.error || 'Failed to update book')
           }
         } else {
-          // Add new custom book
-          const newBook = {
-            id: `custom_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            ...bookData,
-            isCustom: true,
-            status: bookData.status || 'want-to-read',
-            addedDate: new Date().toISOString(),
-            coverUrl: bookData.coverUrl || null
+          // Create a new custom book
+          const result = await createCustomBook(bookData)
+          if (result.success) {
+            await this.loadUserLibrary()
+            await this.loadLibraryStats()
+            this.showSuccessMessage('Custom book added successfully!')
+          } else {
+            throw new Error(result.error || 'Failed to create book')
           }
-
-          this.userLibrary.push(newBook)
-          this.saveUserLibrary()
-          this.showSuccessMessage(`"${bookData.title}" added to your library!`)
         }
 
-        this.cancelBookForm()
+        // Close form
+        this.showAddBookDialog = false
+        this.editingBook = null
       } catch (error) {
         console.error('Error saving book:', error)
-        this.showErrorMessage('Failed to save book. Please try again.')
+        this.showErrorMessage(error.message || 'Failed to save book')
       } finally {
         this.saving = false
       }
     },
 
-    // Update book status (CRUD - Update)
-    updateBookStatus(book, newStatus) {
-      const bookIndex = this.userLibrary.findIndex(b => b.id === book.id)
-      if (bookIndex !== -1) {
-        this.userLibrary[bookIndex] = {
-          ...this.userLibrary[bookIndex],
-          status: newStatus,
-          updatedDate: new Date().toISOString()
-        }
-
-        // Add completion date if marked as read
-        if (newStatus === 'read') {
-          this.userLibrary[bookIndex].completedDate = new Date().toISOString()
-        }
-
-        this.saveUserLibrary()
-        this.showSuccessMessage(`"${book.title}" moved to ${this.getStatusLabel(newStatus)}`)
-      }
-    },
-
-    // Remove book from library (CRUD - Delete)
-    removeBook(book) {
-      this.confirmDialog = {
-        title: 'Remove Book',
-        message: `Are you sure you want to remove "${book.title}" from your library?`,
-        action: () => this.confirmRemoveBook(book),
-        color: 'error',
-        confirmText: 'Remove'
-      }
-      this.showConfirmDialog = true
-    },
-
-    // Confirm and remove book
-    confirmRemoveBook(book) {
-      console.log('Attempting to remove book:', book.id)
-
-      const originalLength = this.userLibrary.length
-      this.userLibrary = this.userLibrary.filter(b => b.id !== book.id)
-
-      console.log(`Library size: ${originalLength} -> ${this.userLibrary.length}`)
-
-      if (this.userLibrary.length < originalLength) {
-        this.saveUserLibrary()
-        this.showConfirmDialog = false
-        this.showSuccessMessage(`"${book.title}" removed from your library`)
-      } else {
-        console.error('Failed to remove book - book not found in library')
-        this.showErrorMessage('Failed to remove book')
-      }
-    },
-
-    // Edit book (CRUD - Update)
-    editBook(book) {
-      this.editingBook = { ...book }
-      this.showAddBookDialog = true
-    },
-
-    // Cancel book form
     cancelBookForm() {
       this.showAddBookDialog = false
       this.editingBook = null
     },
 
-    // Utility methods
-    getStatusLabel(status) {
-      const labels = {
-        'want-to-read': 'Want to Read',
-        'currently-reading': 'Currently Reading',
-        'read': 'Read'
-      }
-      return labels[status] || status
+    editBook(book) {
+      this.editingBook = { ...book }
+      this.showAddBookDialog = true
     },
 
-    // Message helpers with safe toast handling
-    showSuccessMessage(message) {
-      if (this.$toast) {
-        this.$toast.success(message)
-      } else {
-        console.log('✅ Success:', message)
+    async updateBookStatus(book, newStatus) {
+      try {
+        if (!book?.id) return
+        const result = await updateBookService(book, { status: newStatus })
+        if (result.success) {
+          // Update local state optimistically for responsiveness
+          const idx = this.userLibrary.findIndex(b => b.id === book.id)
+          if (idx !== -1) {
+            this.$set
+              ? this.$set(this.userLibrary, idx, { ...this.userLibrary[idx], status: newStatus })
+              : (this.userLibrary[idx] = { ...this.userLibrary[idx], status: newStatus })
+          }
+          await this.loadLibraryStats()
+          this.showSuccessMessage('Status updated')
+        } else {
+          throw new Error(result.error || 'Failed to update status')
+        }
+      } catch (error) {
+        console.error('Error updating status:', error)
+        this.showErrorMessage(error.message || 'Failed to update status')
       }
     },
 
-    showErrorMessage(message) {
-      if (this.$toast) {
-        this.$toast.error(message)
+    removeBook(book) {
+      if (!book?.id) return
+
+      // Prepare confirmation dialog
+      this.confirmDialog = {
+        title: 'Remove Book',
+        message: `Are you sure you want to remove "${book.title}" from your library?`,
+        color: 'error',
+        confirmText: 'Remove',
+        action: async () => {
+          try {
+            const res = await removeBookService(book)
+            if (res.success) {
+              await this.loadUserLibrary()
+              await this.loadLibraryStats()
+              this.showSuccessMessage('Book removed')
+            } else {
+              throw new Error(res.error || 'Failed to remove book')
+            }
+          } catch (error) {
+            console.error('Error removing book:', error)
+            this.showErrorMessage(error.message || 'Failed to remove book')
+          } finally {
+            this.showConfirmDialog = false
+          }
+        }
+      }
+
+      this.showConfirmDialog = true
+    },
+
+    async executeConfirmAction() {
+      // Ensure action exists and is a function
+      if (typeof this.confirmDialog.action === 'function') {
+        await this.confirmDialog.action()
       } else {
-        console.error('❌ Error:', message)
-        alert(message) // Fallback for critical errors
+        this.showConfirmDialog = false
       }
     },
 
-    showInfoMessage(message) {
-      if (this.$toast) {
-        this.$toast.info(message)
-      } else {
-        console.log('ℹ️ Info:', message)
-      }
+    showSuccessMessage(text) {
+      this.snackbar = { show: true, text, color: 'success' }
+    },
+
+    showErrorMessage(text) {
+      this.snackbar = { show: true, text, color: 'error' }
     }
   }
 }
@@ -472,14 +476,10 @@ export default {
 
 <style scoped>
 .my-library-page {
-  min-height: 80vh;
+  min-height: 70vh;
 }
 
 .page-header {
-  border-bottom: 1px solid #e0e0e0;
-}
-
-.v-tabs-window {
-  margin-top: 0;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
 }
 </style>

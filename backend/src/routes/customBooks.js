@@ -1,5 +1,3 @@
-// backend/src/routes/customBooks.js
-
 const express = require('express');
 const router = express.Router();
 const customBooksController = require('../controllers/customBooksController');

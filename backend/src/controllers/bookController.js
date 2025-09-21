@@ -1,6 +1,5 @@
 const openLibraryService = require('../services/openLibraryService')
 
-// GET /api/books/search?q=query&page=1&limit=20
 const searchBooks = async (req, res) => {
     try {
         const { q, page = 1, limit = 20, sort = 'relevance' } = req.query
